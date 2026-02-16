@@ -1,0 +1,5 @@
+interface:
+  display_name: "Freqtrade 策略研发"
+  short_description: "本仓库回测/超参/OOS/数据排错SOP"
+  brand_color: "#2563EB"
+  default_prompt: "使用 $freqtrade-strategy-dev 按本仓库SOP指导我完成数据下载、回测、OOS与hyperopt。"

@@ -1,0 +1,39 @@
+{
+  "strategy_name": "PerpPathStrategy",
+  "params": {
+    "roi": {
+      "0": 100
+    },
+    "stoploss": {
+      "stoploss": -0.03
+    },
+    "trailing": {
+      "trailing_stop": false,
+      "trailing_stop_positive": null,
+      "trailing_stop_positive_offset": 0.0,
+      "trailing_only_offset_is_reached": false
+    },
+    "max_open_trades": {
+      "max_open_trades": 1
+    },
+    "buy": {
+      "window": 21,
+      "x_profit": 0.0191,
+      "y_risk": 0.0044
+    },
+    "sell": {
+      "tp1": 0.0063,
+      "tp1_ratio": 0.43,
+      "tp2": 0.0376,
+      "trail_atr_mult": 1.61,
+      "trail_fixed": 0.0122
+    },
+    "protection": {
+      "atr_mult": 1.83,
+      "atr_period": 20,
+      "fixed_sl": 0.0148
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-01-27 01:25:55.254353+00:00"
+}
