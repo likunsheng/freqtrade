@@ -21,8 +21,10 @@ from freqtrade.util.dry_run_wallet import get_dry_run_wallet
 # Why: hyperopt is run on different timeranges (60d/150d/213d/7mo ...).
 # If the loss hardcodes a single TARGET_TRADES / EXPECTED_MAX_PROFIT, it may optimize the wrong thing
 # (e.g. chasing trade count or short duration while tolerating negative profit).
-DEFAULT_TARGET_TRADES_PER_MONTH = 120
-DEFAULT_TARGET_MONTHLY_RETURN = 0.10
+DEFAULT_TARGET_TRADES_PER_MONTH = 90
+DEFAULT_TARGET_MONTHLY_RETURN = 0.04
+DEFAULT_MIN_TRADES_PER_MONTH = 25
+DEFAULT_SOFT_DRAWDOWN_LIMIT = 0.08
 
 # max average trade duration in minutes
 # if eval ends with higher value, we consider it a failed eval
@@ -124,7 +126,7 @@ def _months_in_timerange(min_date: datetime, max_date: datetime) -> float:
 
 
 def _expected_total_return(target_monthly_return: float, months: float) -> float:
-    # Compound target to match how "month-on-month" goals are usually stated.
+    # Compound target to match month-on-month compounding expectation.
     return max(0.0, (1.0 + max(0.0, target_monthly_return)) ** months - 1.0)
 
 
@@ -156,6 +158,20 @@ def _max_drawdown_ratio(results: DataFrame, starting_balance: float) -> float:
     except Exception:
         mdd = 0.0
     return max(0.0, mdd)
+
+
+def _short_trade_ratio(results: DataFrame) -> float:
+    """
+    Ratio of trades tagged as short-like.
+    Uses `enter_tag` text matching to remain strategy-agnostic.
+    """
+    if results is None or results.empty or "enter_tag" not in results.columns:
+        return 0.0
+    tags = results["enter_tag"].fillna("").astype(str).str.lower()
+    if len(tags) == 0:
+        return 0.0
+    short_mask = tags.str.contains("short")
+    return float(short_mask.mean())
 
 
 class SampleHyperOptLoss(IHyperOptLoss):
@@ -196,27 +212,55 @@ class SampleHyperOptLoss(IHyperOptLoss):
         max_dd_limit = _select_discrete_max_dd_limit(config)
         max_dd = _max_drawdown_ratio(results, start_balance)
         if max_dd > max_dd_limit:
-            # Large penalty to make these candidates non-competitive.
-            # Keep continuous component so hyperopt can still "learn" directionally.
-            return 1_000.0 + (max_dd - max_dd_limit) * 10_000.0
+            hard_dd_base = _float_param(params, "hard_dd_penalty_base", 50.0)
+            hard_dd_scale = _float_param(params, "hard_dd_penalty_scale", 1200.0)
+            # Keep a hard constraint, but avoid a penalty so extreme that optimizer
+            # ignores all profit information and converges to ultra-conservative sets.
+            return hard_dd_base + (max_dd - max_dd_limit) * hard_dd_scale
 
         # Targets scaled to the timerange length.
         months = _months_in_timerange(min_date, max_date)
         target_trades_per_month = _float_param(params, "target_trades_per_month", DEFAULT_TARGET_TRADES_PER_MONTH)
+        min_trades_per_month = _float_param(params, "min_trades_per_month", DEFAULT_MIN_TRADES_PER_MONTH)
         target_monthly_return = _float_param(params, "target_monthly_return", DEFAULT_TARGET_MONTHLY_RETURN)
+        soft_drawdown_limit = _float_param(params, "soft_drawdown_limit", DEFAULT_SOFT_DRAWDOWN_LIMIT)
 
         target_trades = max(1.0, target_trades_per_month * months)
+        min_trades = max(1.0, min_trades_per_month * months)
         expected_total = _expected_total_return(target_monthly_return, months)
 
         # Loss components:
-        # - trade_loss: encourage the chosen activity level (80–150 trades/month typical for 5m).
-        # - profit_loss: main driver (penalize negative profit strongly).
+        # - trade_loss: keep activity around the target zone.
+        # - min_trade_penalty: hard penalty when coverage is too low.
+        # - profit_loss: strong downside penalty when total return is negative.
+        # - soft_dd_penalty: continuous drawdown control below the hard cutoff.
         # - duration_loss: mild penalty for very long average holding times.
-        trade_loss = 1 - 0.25 * exp(-((trade_count - target_trades) ** 2) / 10**5.6)
+        trade_loss = 1 - 0.12 * exp(-((trade_count - target_trades) ** 2) / 10**5.6)
+        min_trade_penalty = 0.0
+        if trade_count < min_trades:
+            min_trade_penalty_mult = _float_param(params, "min_trade_penalty_mult", 1.2)
+            min_trade_penalty = min_trade_penalty_mult * ((min_trades - trade_count) / min_trades)
+
+        profit_reward_mult = _float_param(params, "profit_reward_mult", 1.6)
         if total_profit < 0:
-            profit_loss = 2.0 + min(5.0, abs(total_profit) / max(1e-9, expected_total))
+            profit_loss = 4.0 + min(8.0, 2.0 * abs(total_profit) / max(1e-9, expected_total))
         else:
-            profit_loss = max(0.0, 1.0 - (total_profit / max(1e-9, expected_total)))
-        duration_loss = 0.25 * min(trade_duration / MAX_ACCEPTED_TRADE_DURATION, 1.0)
-        result = trade_loss + profit_loss + duration_loss
+            # Stronger upside reward once target return is exceeded.
+            base = max(0.0, 1.0 - (total_profit / max(1e-9, expected_total)))
+            bonus = profit_reward_mult * max(0.0, (total_profit / max(1e-9, expected_total)) - 1.0)
+            profit_loss = base - bonus
+
+        short_penalty = 0.0
+        min_short_ratio = _float_param(params, "min_short_trade_ratio", 0.0)
+        if min_short_ratio > 0.0:
+            short_ratio = _short_trade_ratio(results)
+            if short_ratio < min_short_ratio:
+                short_penalty = 1.5 * ((min_short_ratio - short_ratio) / max(1e-9, min_short_ratio))
+
+        soft_dd_penalty = 0.0
+        if max_dd > soft_drawdown_limit:
+            soft_dd_penalty_mult = _float_param(params, "soft_dd_penalty_mult", 1.2)
+            soft_dd_penalty = soft_dd_penalty_mult * ((max_dd - soft_drawdown_limit) / soft_drawdown_limit)
+        duration_loss = 0.20 * min(trade_duration / MAX_ACCEPTED_TRADE_DURATION, 1.0)
+        result = trade_loss + min_trade_penalty + profit_loss + short_penalty + soft_dd_penalty + duration_loss
         return result
