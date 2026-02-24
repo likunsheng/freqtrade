@@ -1,0 +1,48 @@
+{
+  "strategy_name": "PerpPathTrendOnlyV1Lev3LongShortStandalone",
+  "params": {
+    "roi": {
+      "0": 100
+    },
+    "stoploss": {
+      "stoploss": -0.05
+    },
+    "trailing": {
+      "trailing_stop": true,
+      "trailing_stop_positive": 0.02,
+      "trailing_stop_positive_offset": 0.03,
+      "trailing_only_offset_is_reached": true
+    },
+    "max_open_trades": {
+      "max_open_trades": 3
+    },
+    "buy": {
+      "basis_abs_max": 0.009,
+      "funding_long_max": 0.004,
+      "max_btc_vol": 0.013,
+      "oi_proxy_max": 2.4,
+      "regime_bull_mom_min": 0.04,
+      "regime_bull_spread_min": 0.006,
+      "regime_bull_vol_max": 0.023,
+      "short_basis_abs_max": 0.037,
+      "short_btc_vol_max": 0.007,
+      "short_funding_min": 0.008,
+      "short_oi_proxy_max": 1.6,
+      "short_rsi_high": 36,
+      "short_rsi_low": 49,
+      "short_trend_adx": 35,
+      "short_trend_spread": 0.029,
+      "trend_adx": 20,
+      "trend_spread": 0.007
+    },
+    "sell": {
+      "short_fail_fast_loss": -0.012,
+      "short_fail_fast_minutes": 88,
+      "trend_hold_minutes": 333,
+      "trend_quick_tp": 0.039
+    },
+    "protection": {}
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-02-24 13:58:48.884507+00:00"
+}
