@@ -1,5 +1,5 @@
 {
-  "strategy_name": "PerpPathTrendOnlyV1Lev3LongShortStandaloneElasticV2Pyramid",
+  "strategy_name": "PerpPathTrendOnlyV1Lev3LongShortStandaloneElasticV3Pyramid",
   "params": {
     "roi": {
       "0": 100
